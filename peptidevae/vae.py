@@ -1,6 +1,8 @@
 from __future__ import annotations
 import sys
-sys.path.append("../")
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent)) # adds the Diffusion Project to path
+
 import os
 from math import log
 from math import pi as PI
@@ -9,21 +11,25 @@ import pytorch_lightning as pl
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
-from data import DatasetKmers
+from .data import DatasetKmers
 from torch.optim import Adam
 
 
 BATCH_SIZE = 256 
+
+# Warmup steps are steps during training that have low learning rate. We ramp up learning rate slowly to the target
+# to avoid large, erratic steps. This helps stabalize training.
 ENCODER_WARMUP_STEPS = 100
 DECODER_WARMUP_STEPS = 100
+
+# After the warmup phase, says how after how many steps should the decoder / encoder update their learning rate
 AGGRESSIVE_STEPS = 5 
 
-
+# Warmup learning rate - Use Linear warmup
 def encoder_lr_sched(step):
-    # Use Linear warmup
     return min(step / ENCODER_WARMUP_STEPS, 1.0)
 
-
+# don't train decoder for first 100 steps, then only every 5 steps with a linear warmup
 def decoder_lr_sched(step):
     if step < ENCODER_WARMUP_STEPS:
         return 0.0
@@ -66,6 +72,23 @@ def polynomial_kernel(x, y, c=0.0, d=4.0):
 def gaussian_nll(x, mu, sigma):
     return sigma.log() + 0.5 * (log(2 * PI) + ((x - mu) / sigma).pow(2))
 
+# In a VAE that is outputting a protein sequence, the output is discrete
+# So I can imagine changing the parameters of my decoder ever so slightly (fix a latent space)
+# And as I change the decoder, at some point, the output of my decoder will change
+# (a different) token will be output
+
+# The problem is that this is discrete! If we had some loss f(output), then
+# d f(output) / dDecoder is discontinous, as it is a discrete problem!
+# so, we need a way to backpropegate through this discrete RV
+# hence reperameterization 
+
+# It does this by saying that each token is actually a multinoulli (categorial) RV
+# and so we can differentiate that
+
+# So, we can get actual tokens in the output step (i.e. Alanine, Cystosine, etc)
+# but when we backpropogate, d output / dDecoder is continuous as output is a distribution
+# and so it smoothely varies, so if we say need to increase Alanine probability, we 
+# can just follow the direction that increases PROBABILITY of alanine, very smart
 
 def gumbel_softmax(
     logits: Tensor,
@@ -78,14 +101,19 @@ def gumbel_softmax(
     """
     Mostly from https://pytorch.org/docs/stable/_modules/torch/nn/functional.html#gumbel_softmax
     """
+
+    # Adding Gumbel noise to logits then taking argmax is equivalent
+    # to sampling from the categorical distribution
     if randoms is None:
         randoms = (
             -torch.empty_like(logits, memory_format=torch.legacy_contiguous_format)
             .exponential_()
             .log()
         )  # ~Gumbel(0,1)
+    # Lower Tau = more discrete, Higher Tau = more continuous
     gumbels = (logits + randoms) / tau  # ~Gumbel(logits,tau)
-    y_soft = gumbels.softmax(dim)
+    y_soft = gumbels.softmax(dim) # convert to distribution
+    
 
     if hard:
         # Straight through.
@@ -94,8 +122,11 @@ def gumbel_softmax(
             logits, memory_format=torch.legacy_contiguous_format
         ).scatter_(dim, index, 1.0)
         ret = y_hard - y_soft.detach() + y_soft
+        # returns the one-hot (discrete) distrubtion in the forward direction
+        # but backpropogates using the categorial distribution
     else:
         # Reparametrization trick.
+        # Returns the aproximate categorical distribution
         ret = y_soft
 
     if return_randoms:
@@ -103,39 +134,49 @@ def gumbel_softmax(
     else:
         return ret
 
+# In a transformer, attention has no notion of sequence order.
+# When transformer is looking at past tokens, it does not know which came first
+# We don't want that, we want to give each a positional encoding
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5_000):
+        # d_model -> dimensionality of the model (256 in our case)
+        # dropout (dropout probability, I believe chance dimension d is not used)
+        # max sequence length model can use
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
 
+        # column vector of positions: [0, 1, 2, ..., max_len - 1]
         position = torch.arange(max_len).unsqueeze(1)
+
+        # dimension i gets wavelength of 10000^(2i/d_model)
         div_term = torch.exp(torch.arange(0, d_model, 2) * (-log(10000.0) / d_model))
+
+        # even dimensions get sin encoding, odd gets cos encoding
         pe = torch.zeros(1, max_len, d_model)
         pe[0, :, 0::2] = torch.sin(position * div_term)
         pe[0, :, 1::2] = torch.cos(position * div_term)
         self.register_buffer("pe", pe)
 
+    # We add the encoding, and possibly dropout the dimension for regularization
     def forward(self, x):
         x = x + self.pe[:, : x.shape[1], :]
         return self.dropout(x)
-
-
 
 class InfoTransformerVAE(pl.LightningModule):
     def __init__(
         self,
         # dataset: ProtiensDataset,
         dataset: DatasetKmers, 
-        bottleneck_size: int = 2,
+        bottleneck_size: int = 2, # number of vectors in the latent representation (so 2x 128 size)
         d_model: int = 128,
-        is_autoencoder: bool = False,
-        kl_factor: float = 0.1,
-        mmd_factor: float = 0.0,
-        cycle_factor: float = 0.0,
-        valid_factor: float = 0.0,
-        min_posterior_std: float = 1e-4,
-        n_samples_mmd: int = 2,
+        is_autoencoder: bool = False, # this is stochastic VAE
+        kl_factor: float = 0.1, # higher kl factor --> more normal latent, but less accuracy
+        mmd_factor: float = 0.0, # not used, alternative to kl
+        cycle_factor: float = 0.0, # not used, penalizes if encoder(decoder(z)) != z
+        valid_factor: float = 0.0, # not used
+        min_posterior_std: float = 1e-4, # min posterior std dev, prevents overfitting + overconfidence
+        n_samples_mmd: int = 2, #not used
         encoder_nhead: int = 8,
         encoder_dim_feedforward: int = 512,
         encoder_dropout: float = 0.05,

@@ -1,11 +1,13 @@
-import sys 
-sys.path.append("../")
-from vae import InfoTransformerVAE 
-from data import DataModuleKmers, collate_fn
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent)) # adds the Diffusion Project to path
+
+from .vae import InfoTransformerVAE 
+from .data import DataModuleKmers, collate_fn
 import torch 
 
 # fix for my local
-map_location = None if torch.cuda.is_available() else torch.device('cpu')
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # example function to load vae, loads uniref vae 
 def load_vae(
@@ -29,11 +31,11 @@ def load_vae(
         decoder_num_layers=6,
     ) 
 
-    # load in state dict of trained model:
+    # load in state dict of trained model w/ CPU compatibility
     if path_to_vae_statedict:
-        state_dict = torch.load(path_to_vae_statedict,  map_location=torch.device('cpu')) 
+        state_dict = torch.load(path_to_vae_statedict, map_location=device) 
         vae.load_state_dict(state_dict, strict=True) 
-    vae = vae.cuda()
+    vae = vae.to(device)
     vae = vae.eval()
 
     # set max string length that VAE can generate
@@ -55,10 +57,11 @@ def vae_forward(xs_batch, dataobj, vae):
     tokenized_seqs = dataobj.tokenize_sequence(xs_batch)
     encoded_seqs = [dataobj.encode(seq).unsqueeze(0) for seq in tokenized_seqs]
     X = collate_fn(encoded_seqs)
-    dict = vae(X.cuda())
-    vae_loss, z = dict['loss'], dict['z']
-    z = z.reshape(-1,256)
+    X = X.to(device)
 
+    out_dict = vae(X)
+    vae_loss, z = out_dict['loss'], out_dict['z']
+    z = z.reshape(-1,256)
     return z, vae_loss
 
 
@@ -69,9 +72,9 @@ def vae_decode(z, vae, dataobj):
             a corresponding list of the decoded input space 
             items output by vae decoder 
     '''
-    z = z.cuda()
+    z = z.to(device)
     vae = vae.eval()
-    vae = vae.cuda()
+    vae = vae.to(device)
     # sample molecular string form VAE decoder
     sample = vae.sample(z=z.reshape(-1, 2, 128))
     # grab decoded aa strings
