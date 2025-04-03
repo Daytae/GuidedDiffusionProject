@@ -61,7 +61,7 @@ class DataModuleKmers(pl.LightningDataModule):
 class DatasetKmers(Dataset): # asssuming train data 
     def __init__(self, dataset='train', data_path=None, k=3, vocab=None, vocab2idx=None, load_data=False):
         if data_path is None: 
-            path_to_data = 'data/uniref-cropped.csv' 
+            path_to_data = 'peptidevae/data/uniref-cropped.csv' 
         df = pd.read_csv(path_to_data)
         self.dataset = dataset
         train_seqs = df['sequence'].values  # 4_500_000  sequences 
