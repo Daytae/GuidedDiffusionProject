@@ -38,23 +38,22 @@ def classifier_cond_fn(x, t, classifier, y, classifier_scale=1):
 
 model = Unet1D(dim=128, channels=1, self_condition=False)
 
-# Create a dummy input tensor.
+# input dummy tensors
 batch_size = 1
-channels = 1    # Should match model.channels
-seq_length = 128  # Use your diffusion model's expected sequence length.
+channels = 1    # same as model channels
+seq_length = 128  # use diffusion model latent space seq length
 dummy_input = torch.randn(batch_size, channels, seq_length)
 
-# Create a dummy time tensor.
 dummy_time = torch.randint(0, 1000, (batch_size,)).float()  # timesteps in [0, num_timesteps)
 
-# Pass the dummy input through the UNet.
+# check pass works
 output = model(dummy_input, dummy_time)
 print("UNet output shape:", output.shape)
 
 diffusion_model = GaussianDiffusion1D(
-    model = model,
+    model=model,
     seq_length=seq_length,
-    timesteps=1000,
+    timesteps=1000
 )
 
 loss = diffusion_model(dummy_input) 
