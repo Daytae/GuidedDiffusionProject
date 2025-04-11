@@ -1,5 +1,5 @@
 import torch
-from data import DataModuleKmers
+from data.data import DataModuleKmers
 import time
 import wandb
 import os
