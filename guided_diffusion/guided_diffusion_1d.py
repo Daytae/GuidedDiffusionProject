@@ -424,7 +424,7 @@ class GaussianDiffusion1D(nn.Module):
         beta_schedule = 'sigmoid',
         schedule_fn_kwargs = dict(),
         ddim_sampling_eta = 0.,
-        auto_normalize = True,
+        auto_normalize = False,
         min_snr_loss_weight = False,
         min_snr_gamma = 5
     ):
@@ -516,9 +516,12 @@ class GaussianDiffusion1D(nn.Module):
         register_buffer('loss_weight', loss_weight)
 
         # auto-normalization of data [0, 1] -> [-1, 1] - can turn off by setting it to be False
-
+        # unnorm = lambda x : normalize_to_neg_one_to_one(unnormalize_to_zero_to_one(x))
         self.normalize = normalize_to_neg_one_to_one if auto_normalize else identity
         self.unnormalize = unnormalize_to_zero_to_one if auto_normalize else identity
+        # self.unnormalize = unnorm if auto_normalize else identity
+    
+        
 
     def predict_start_from_noise(self, x_t, t, noise):
         return (
@@ -600,7 +603,7 @@ class GaussianDiffusion1D(nn.Module):
         new_mean = (
             mean.float() + variance * gradient.float()
         )
-        print("gradient: ",(variance * gradient.float()).mean())
+        # print("gradient: ",(variance * gradient.float()).mean())
         return new_mean
 
         

@@ -65,7 +65,7 @@ def vae_forward(xs_batch, dataobj, vae):
     return z, vae_loss
 
 
-def vae_decode(z, vae, dataobj):
+def vae_decode(z, vae, dataobj, device=device):
     '''Input
             z: a tensor latent space points (bsz, self.dim)
         Output

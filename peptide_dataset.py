@@ -13,14 +13,11 @@ class LatentDataset(Dataset):
         Dataset with (latent code (256 dim), label)
     '''
 
-    def __init__(self, data_path='data/latent_dataset.pkl'):
+    def __init__(self, latents, labels):
         # open pickle and grab data
-        with open(data_path, 'rb') as f:
-            data_dict = pickle.load(f)
-
-        self.latents = data_dict['latent']
-        self.labels = data_dict['labels']
-
+      
+        self.latents = latents
+        self.labels = labels
 
     def __len__(self):
         return len(self.latents)
@@ -49,49 +46,24 @@ class LatentDataModule:
         self.shuffle = shuffle
         self.seed = seed
 
+
         self.setup()
 
     def setup(self):
-        full_dataset = LatentDataset(self.data_path)
+        with open(self.data_path, 'rb') as f:
+            data = pickle.load(f)
+            latent = data['latent']
+            label = data['labels']
+            full_dataset = LatentDataset(latent, label)
 
-        dataset_size = len(full_dataset)
-        train_size = int(self.train_val_split *  dataset_size)
-        val_size = dataset_size - train_size
+            dataset_size = len(full_dataset)
+            print(f"Loaded full dataset of {dataset_size} examples")
 
-        generator = torch.Generator().manual_seed(self.seed)
-        self.train_dataset, self.val_dataset = torch.utils.data.random_split(full_dataset, [train_size, val_size], generator=generator)
-
-        print(f"Dataset split: {train_size} training samples, {val_size} validation samples")
-
-    def train_dataloader(self):
-        return DataLoader(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            shuffle=self.shuffle,
-            num_workers=self.num_workers,
-            collate_fn=peptide_collate_fn,
-            pin_memory=True
-        )
-    
-    def val_dataloader(self):
-        return DataLoader(
-            self.val_dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            collate_fn=peptide_collate_fn,
-            pin_memory=True
-        )
-    
-    def full_dataloader(self):
-        full_dataset = LatentDataset(self.data_path)
-        return DataLoader(
-            full_dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            collate_fn=peptide_collate_fn,
-            pin_memory=True
-        )
-    
-    
+            self.full_dataloader = DataLoader(
+                full_dataset,
+                batch_size=self.batch_size,
+                shuffle=False,
+                num_workers=0, # to possibly fix serializastion bug
+                collate_fn=peptide_collate_fn,
+                pin_memory=False
+            )
