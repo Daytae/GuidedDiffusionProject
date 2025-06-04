@@ -1,0 +1,1 @@
+from molformers.datamodules.selfie_dataset import SELFIESDataModule
