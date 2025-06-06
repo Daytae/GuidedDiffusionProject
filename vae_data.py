@@ -23,7 +23,7 @@ failed_selfies = []
 
 save_every = 50000 # save every 50k
 
-with gzip.open('data/val_selfie.gz', 'rt', encoding='utf-8') as f:
+with gzip.open('data/train_selfie.gz', 'rt', encoding='utf-8') as f:
     for i, line in enumerate(tqdm(f, desc='Processing Selfies strings...')):
         selfie = line.strip()
 

@@ -17,6 +17,7 @@ from torchvision import transforms as T, utils
 
 from einops import rearrange, reduce
 from einops.layers.torch import Rearrange
+import numpy as np
 
 from PIL import Image
 from tqdm.auto import tqdm
@@ -817,7 +818,8 @@ class Trainer1D(object):
         amp = False,
         mixed_precision_types = 'fp16',
         split_batches = True,
-        max_grad_norm = 1.
+        max_grad_norm = 1.,
+        num_workers=None
     ):
         super().__init__()
 
@@ -842,7 +844,10 @@ class Trainer1D(object):
         # self.image_size = diffusion_model.image_size
 
         # dataset and dataloader
-        dl = DataLoader(dataset, batch_size=train_batch_size, shuffle=True, pin_memory=True, num_workers=cpu_count())
+        # my addition:
+        cpu_num = cpu_count() if num_workers == None else num_workers
+        # end my additon /
+        dl = DataLoader(dataset, batch_size=train_batch_size, shuffle=True, pin_memory=True, num_workers=cpu_num)
         dl = self.accelerator.prepare(dl)
         self.dl = cycle(dl)
 
@@ -950,7 +955,10 @@ class Trainer1D(object):
                             all_samples_list = list(map(lambda n: self.ema.ema_model.sample(batch_size=n), batches))
 
                         all_samples = torch.cat(all_samples_list, dim = 0)
-                        utils.save_image(all_samples, str(self.results_folder / f'sample-{milestone}.png'), nrow = int(math.sqrt(self.num_samples)))
+                       # Save 1D samples as numpy array instead of image
+                        np.save(str(self.results_folder / f'sample-{milestone}.npy'), all_samples.cpu().numpy())
+                        print(f"Saved samples to sample-{milestone}.npy")
+                        
                         self.save(milestone)
 
                 pbar.update(1)
