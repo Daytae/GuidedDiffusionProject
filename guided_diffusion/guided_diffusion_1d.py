@@ -808,7 +808,7 @@ class Trainer1D(object):
         train_batch_size = 16,
         gradient_accumulate_every = 1,
         train_lr = 1e-4,
-        train_num_steps = 100000,
+        train_num_steps = 1000000,
         ema_update_every = 10,
         ema_decay = 0.995,
         adam_betas = (0.9, 0.99),
